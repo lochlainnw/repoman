@@ -1,0 +1,6 @@
+println "Running plugin enumerator"
+println ""
+def plugins = jenkins.model.Jenkins.instance.getPluginManager().getPlugins()
+plugins.each {println "${it.getShortName()} - ${it.getVersion()}"}
+println ""
+println "Total number of plugins: ${plugins.size()}"

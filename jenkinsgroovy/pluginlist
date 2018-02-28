@@ -1,0 +1,7 @@
+Jenkins.instance.pluginManager.plugins.sort { it.getDisplayName() }.each{
+
+  plugin ->
+
+    println ("${plugin.getDisplayName()} (${plugin.getShortName()}): ${plugin.getVersion()}")
+
+}

@@ -1,0 +1,114 @@
+import groovy.json.*
+import hudson.model.*
+import hudson.*
+import hudson.util.VariableResolver
+import hudson.util.RemotingDiagnostics
+import hudson.model.AbstractBuild
+import hudson.slaves.*
+import org.jvnet.hudson.plugins.shelveproject.ShelveProjectTask
+import jenkins.model.Jenkins;
+
+long aDay = 1000*60*60*24
+long now = System.currentTimeMillis()
+int limit = 180
+String rootUrl = Jenkins.instance.getRootUrl()
+int nonbuildable = 0;
+int buildable = 0;
+
+//Add|remove exceptions here’
+exceptions = ["dnd","important”]
+
+java.util.List<String> items = new java.util.ArrayList()
+
+Writer writer = new StringWriter()
+writer.write("Type, URL, Enabled/Disabled, Last Build Date, Days sitting idle, Unused(Never ran), Active(Within 180 days), Aged (Not ran in the last 180 days)")
+writer.append("\n")
+
+Jenkins.instance.getAllItems(Job).each{ item ->
+
+  if(!exceptions.any {item.fullName.toLowerCase().contains(it)}) {
+
+  try {
+    String name = item.getUrl();
+    String type = item.getClass().simpleName
+    String lastBuild = getLastBuild(item)
+    String url = item.getUrl()
+    boolean enabled = isEnabled(item);
+    boolean unused = isUnused(lastBuild);
+    int days = getDays (item, now, aDay)
+    boolean active = isActive(days, limit)
+    boolean aged = isAged(days, limit)
+    if(enabled) {
+       buildable++
+    } else {
+       nonbuildable++
+    }
+
+    if(aged && type != "WorkflowJob") {
+ 
+      writer.write(type + "," + rootUrl + name + "," + enabled + "," + lastBuild + "," + days + "," + unused + "," + active + "," + aged)
+      writer.append("\n")
+     
+      item.builds.findAll { it.delete()}
+      println (rootUrl + name + " -- Builds Deleted")
+      def spt=  new ShelveProjectTask(item)
+      Hudson.getInstance().getQueue().schedule(spt , 0 );
+      println(rootUrl + name + " --- shelved----------- ")
+    }
+
+  }
+  catch(groovy.lang.MissingPropertyException err) {
+  }
+
+  } // if exceptions
+
+}
+ 
+
+def getLastBuild(item) {
+  try {
+    return item.lastBuild != null && item.lastBuild.time != "" ? item.lastBuild.time : ""
+  } catch(groovy.lang.MissingPropertyException err) {
+    return "no data"
+  }
+}
+
+def getDays (item, now, aDay) {
+  try {
+    long last = item.lastBuild.timestamp.getTimeInMillis()
+    long time = now-last
+    int days = time / aDay
+    return days
+  } catch(groovy.lang.MissingPropertyException|java.lang.NullPointerException err) {
+    return -1
+  }
+
+}
+
+def isActive(days, limit) {
+  return days > -1 && days < limit
+}
+
+def isAged(days, limit) {
+  return days > -1 && days >= limit
+}
+
+def isUnused(lastBuild) {
+  return lastBuild == "";
+
+}
+
+def isEnabled(item) {
+
+  try {
+    return !item.disabled
+  } catch (groovy.lang.MissingPropertyException err) {
+    return true
+
+  }
+
+}
+
+writer.close()
+
+new File("${build.getWorkspace()}/housekeeping-jenkinsCM.csv").write(writer.toString())
